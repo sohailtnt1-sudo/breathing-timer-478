@@ -9,11 +9,12 @@ import 'session_screen.dart';
 import 'settings_screen.dart';
 import 'unlock_screen.dart';
 
-/// Home: the pattern list. One tap starts a session.
+/// Home: the pattern list. One tap opens a session screen; the
+/// countdown starts only when the user taps Start there.
 ///
 /// Free: 4-7-8, Box, Equal, Calm + Rain sound + current streak.
 /// Locked (Premium): Triangle, Coherent, Energizing, Custom — tapping a
-/// locked pattern opens the Unlock screen instead of starting a session.
+/// locked pattern opens the Unlock screen instead of a session.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.streakService});
 
@@ -81,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _StreakCard(streakService: widget.streakService),
           const SizedBox(height: 16),
           const Text(
-            'Choose a pattern — tap to start',
+            'Choose a pattern — tap to open',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 8),

@@ -23,8 +23,9 @@ Future<void> main() async {
   final widgetService = WidgetService();
   await widgetService.init();
 
-  // If the app was launched from the home-screen widget, start the
-  // favourite session once the first frame is ready.
+  // If the app was launched from the home-screen widget, open the
+  // favourite pattern's session screen (ready state — the countdown
+  // starts only when the user taps Start) once the first frame is ready.
   final launchedFromWidget = await widgetService.initiallyLaunchedFromWidget;
 
   runApp(

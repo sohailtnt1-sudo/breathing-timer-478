@@ -242,10 +242,19 @@ enum BackgroundSound {
   final String name;
   final String explanation;
 
-  /// Asset path, or null for silence.
+  /// Asset path for audioplayers' [AssetSource], or null for silence.
+  ///
+  /// audioplayers resolves asset sources through AudioCache, whose
+  /// default prefix is 'assets/' — so the path must be RELATIVE to the
+  /// assets folder ('sounds/rain.wav'), NOT 'assets/sounds/rain.wav'.
+  /// Passing the full path made AudioCache look for the key
+  /// 'assets/assets/sounds/rain.wav', which does not exist, so play()
+  /// threw and the background sound was silently swallowed (v2 bug,
+  /// reported from a real phone 16 Nov 2026: "Background: Rain" showed
+  /// but no rain was heard).
   String? get assetPath => switch (id) {
-        'rain' => 'assets/sounds/rain.wav',
-        'ocean' => 'assets/sounds/ocean.wav',
+        'rain' => 'sounds/rain.wav',
+        'ocean' => 'sounds/ocean.wav',
         _ => null,
       };
 

@@ -16,6 +16,12 @@ import 'session_end_screen.dart';
 /// Session screen: animated circle + big text cue + countdown + cycle
 /// progress. No ads ever appear during a session.
 ///
+/// The screen opens in a READY state: pattern, timings, cycles and the
+/// chosen background sound are shown with a big Start button, and the
+/// countdown begins ONLY when the user taps Start (v3, user feedback
+/// 16 Nov 2026 — v2 auto-started on tap). The widget deep link
+/// (breathe478://start-session) lands on the same ready state.
+///
 /// Sleep mode (Premium): the screen is allowed to turn off — the session
 /// keeps going with voice cues + vibration only, and NO wakelock is held.
 /// Normal sessions keep the screen on with a wakelock.
@@ -25,11 +31,17 @@ class SessionScreen extends StatefulWidget {
     required this.pattern,
     required this.cycles,
     required this.streakService,
+    this.audioService,
+    this.cueService,
   });
 
   final BreathingPattern pattern;
   final int cycles;
   final StreakService streakService;
+
+  /// Injectable for tests; the app always uses the real services.
+  final AudioService? audioService;
+  final CueService? cueService;
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
@@ -44,11 +56,14 @@ class _SessionScreenState extends State<SessionScreen> {
   int _remaining = 0;
   bool _finished = false;
 
+  /// True once the user has tapped Start and the countdown is running.
+  bool _started = false;
+
   @override
   void initState() {
     super.initState();
-    _audio = AudioService();
-    _cues = CueService();
+    _audio = widget.audioService ?? AudioService();
+    _cues = widget.cueService ?? CueService();
     _phase = widget.pattern.activePhases.first;
     _remaining = _phase!.seconds;
     _runner = BreathingSessionRunner(
@@ -60,11 +75,17 @@ class _SessionScreenState extends State<SessionScreen> {
       }),
       onComplete: _onComplete,
     );
-    // Start the clock FIRST. The session must advance within a second of
-    // this screen appearing, even if TTS / audio / wakelock setup hangs
-    // or fails on this device (v1 froze at "0s" because the runner only
-    // started after that setup finished). All cue + audio setup runs
-    // afterwards, best-effort, and can never block the timer.
+    // Do NOT start here: the countdown begins only when the user taps
+    // Start (see _onStart). The clock still starts first, before any
+    // cue/audio setup, so a hung TTS/audio call can never freeze it
+    // the way v1 froze at "0s".
+  }
+
+  /// User tapped Start: begin the countdown, then set up cues/audio
+  /// best-effort (they can never block the timer).
+  void _onStart() {
+    if (_started) return;
+    setState(() => _started = true);
     _runner.start();
     unawaited(_startCues());
   }
@@ -85,8 +106,7 @@ class _SessionScreenState extends State<SessionScreen> {
       }
       await _cues.init().timeout(const Duration(seconds: 4));
       await _audio
-          .startBackground(
-              settings.backgroundSound, settings.backgroundVolume)
+          .startBackground(settings.backgroundSound, settings.backgroundVolume)
           .timeout(const Duration(seconds: 5));
       await _audio
           .playChime(settings.startEndVolume)
@@ -128,8 +148,7 @@ class _SessionScreenState extends State<SessionScreen> {
     await _audio.playChime(settings.startEndVolume);
     if (settings.vibrationEnabled) await _cues.vibrate(long: true);
     final minutes = (widget.pattern.totalSeconds(widget.cycles) / 60).ceil();
-    final streak = await widget.streakService
-        .recordSession(minutes: minutes);
+    final streak = await widget.streakService.recordSession(minutes: minutes);
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -180,37 +199,107 @@ class _SessionScreenState extends State<SessionScreen> {
         ],
       ),
       body: SafeArea(
+        // Center + scroll: the ready state (circle + chips + Start) is
+        // taller than the running state, and on short screens the
+        // Column used to overflow by a few pixels. Centred when it fits,
+        // scrollable when it doesn't.
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              BreathingCircle(
-                phase: phase,
-                secondsRemaining: _remaining,
-                phaseProgress: phaseProgress.clamp(0.0, 1.0),
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  BreathingCircle(
+                    phase: phase,
+                    secondsRemaining: _remaining,
+                    phaseProgress: _started
+                        ? phaseProgress.clamp(0.0, 1.0)
+                        : 0.0,
+                  ),
+                  const SizedBox(height: 40),
+                  if (!_started) ...[
+                    const Text(
+                      'Ready when you are',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final p in widget.pattern.activePhases)
+                          Chip(label: Text('${p.label} • ${p.seconds}s')),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${widget.cycles} cycles • '
+                      '${widget.pattern.totalDurationLabel(widget.cycles)}',
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Background: ${settings.backgroundSound.name}'
+                      '${settings.sleepMode ? ' • Sleep mode on — screen may turn off' : ''}',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _onStart,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text(
+                          'Start',
+                          style: TextStyle(fontSize: 20),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    LinearProgressIndicator(
+                      value: engine.progress,
+                      backgroundColor: Colors.white12,
+                      color: Colors.tealAccent,
+                      minHeight: 8,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Cycle ${engine.currentCycle} of ${widget.cycles} • '
+                      '${engine.elapsedSeconds}s of ${engine.totalSeconds}s',
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Background: ${settings.backgroundSound.name}'
+                      '${settings.sleepMode ? ' • Sleep mode on — screen may turn off' : ''}',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 40),
-              LinearProgressIndicator(
-                value: engine.progress,
-                backgroundColor: Colors.white12,
-                color: Colors.tealAccent,
-                minHeight: 8,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Cycle ${engine.currentCycle} of ${widget.cycles} • '
-                '${engine.elapsedSeconds}s of ${engine.totalSeconds}s',
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Background: ${settings.backgroundSound.name}'
-                '${settings.sleepMode ? ' • Sleep mode on — screen may turn off' : ''}',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                textAlign: TextAlign.center,
-              ),
-            ],
+            ),
           ),
         ),
       ),
