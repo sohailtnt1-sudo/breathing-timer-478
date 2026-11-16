@@ -6,10 +6,14 @@ plugins {
 
 android {
     namespace = "com.breathe478.timer"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications 23.x and androidx.core 1.19.0 require
+    // compileSdk 37 (Flutter 3.50 default is 36).
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Required by flutter_local_notifications 23.x.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -42,6 +46,11 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+dependencies {
+    // Core library desugaring (required by flutter_local_notifications 23.x).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 
 flutter {
