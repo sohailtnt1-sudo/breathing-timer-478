@@ -82,7 +82,7 @@ class AudioService {
 
   Future<void> stopBackground() async {
     try {
-      await _backgroundPlayer.stop();
+      await _backgroundPlayer.stop().timeout(const Duration(seconds: 3));
     } catch (e) {
       debugPrint('Stop background failed: $e');
     }
