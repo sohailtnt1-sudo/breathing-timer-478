@@ -56,9 +56,15 @@ class SettingsService extends ChangeNotifier {
   }
 
   // --- Volumes: three separate sliders, 0.0–1.0 ---------------------------
+  /// Default background-sound volume. Lowered 0.5 -> 0.25 in v4 (Nov 2026):
+  /// the user reported the v3 rain as too loud/irritating on his phone.
+  /// The slider range is unchanged — the user can still raise it to 1.0.
+  static const double kDefaultBackgroundVolume = 0.25;
+
   double get voiceVolume => _prefs.getDouble(kVoiceVolume) ?? 0.8;
   double get cueVolume => _prefs.getDouble(kCueVolume) ?? 0.8;
-  double get backgroundVolume => _prefs.getDouble(kBackgroundVolume) ?? 0.5;
+  double get backgroundVolume =>
+      _prefs.getDouble(kBackgroundVolume) ?? kDefaultBackgroundVolume;
   double get startEndVolume => _prefs.getDouble(kStartEndVolume) ?? 0.8;
 
   Future<void> setVoiceVolume(double v) async {

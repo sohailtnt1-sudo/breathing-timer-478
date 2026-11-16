@@ -90,33 +90,53 @@ class _SessionScreenState extends State<SessionScreen> {
     unawaited(_startCues());
   }
 
-  /// Best-effort cue/audio setup. Every step is guarded by a timeout and
-  /// a try/catch: a slow or missing TTS engine, audio session or
-  /// vibrator must never stall or kill the session — the timer is
-  /// already running and the text cue on screen always remains.
+  /// Best-effort cue/audio setup. Every step is guarded SEPARATELY by a
+  /// timeout and a try/catch: a slow or missing TTS engine, audio session,
+  /// vibrator or wakelock must never stall or kill the session — the
+  /// timer is already running and the text cue on screen always remains.
+  ///
+  /// v4: this used to be ONE try/catch around all steps, so a single
+  /// failing step aborted the rest — when the wakelock call timed out,
+  /// the background sound never started at all. Each step now fails
+  /// independently and the chain continues.
   Future<void> _startCues() async {
     if (!mounted) return;
     final settings = context.read<SettingsService>();
     final sleepMode = settings.sleepMode;
-    try {
-      if (!sleepMode) {
-        // Normal session: keep the screen on. Sleep mode: deliberately
-        // no wakelock, so the screen can turn off.
+    if (!sleepMode) {
+      // Normal session: keep the screen on. Sleep mode: deliberately
+      // no wakelock, so the screen can turn off.
+      try {
         await WakelockPlus.enable().timeout(const Duration(seconds: 3));
+      } catch (e) {
+        debugPrint('Wakelock failed (continuing without it): $e');
       }
+    }
+    try {
       await _cues.init().timeout(const Duration(seconds: 4));
+    } catch (e) {
+      debugPrint('Cue init failed (continuing without it): $e');
+    }
+    try {
       await _audio
           .startBackground(settings.backgroundSound, settings.backgroundVolume)
           .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('Background sound failed (continuing without it): $e');
+    }
+    try {
       await _audio
           .playChime(settings.startEndVolume)
           .timeout(const Duration(seconds: 5));
-      if (settings.vibrationEnabled) {
-        await _cues.vibrate(long: true).timeout(const Duration(seconds: 2));
-      }
     } catch (e) {
-      // Best-effort only: a cue failing must not affect the session.
-      debugPrint('Session cue setup failed (continuing without it): $e');
+      debugPrint('Chime failed (continuing without it): $e');
+    }
+    if (settings.vibrationEnabled) {
+      try {
+        await _cues.vibrate(long: true).timeout(const Duration(seconds: 2));
+      } catch (e) {
+        debugPrint('Vibration failed (continuing without it): $e');
+      }
     }
   }
 

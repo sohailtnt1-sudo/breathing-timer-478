@@ -157,6 +157,13 @@ void main() {
       expect(find.textContaining('4s of 76s'), findsOneWidget);
       // 4s in: inhale ended, now holding.
       expect(find.text('Hold'), findsOneWidget);
+
+      // Drain _startCues' remaining timeouts. With per-step guarding
+      // (v4) the chain continues past the wakelock timeout into cue
+      // init (up to 9s), audio setup and vibration, all of which hang
+      // in the test env — let fake time run past them, or teardown
+      // fails with "A Timer is still pending".
+      await tester.pump(const Duration(seconds: 30));
     });
   });
 
@@ -179,17 +186,22 @@ void main() {
 
       await tester.tap(find.text('Start'));
       await tester.pump();
-      // In the test env the wakelock step inside _startCues hits its
-      // 3s real-time timeout before the audio setup runs, so wait it
-      // out in real time before checking the calls.
-      await Future.delayed(const Duration(seconds: 4));
-      await tester.pump();
+      // The wakelock step inside _startCues hits its 3s timeout before
+      // the audio setup runs. NOTE (v4): do NOT wait with
+      // Future.delayed here — time is FAKE inside testWidgets, so a
+      // real-time delay never fires and the test hangs forever
+      // (confirmed by probe, Nov 2026). Pump fake time past the 3s
+      // timeout instead; that fires the timeout and lets _startCues
+      // reach the (fake) audio service.
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump(); // flush the rest of the _startCues chain
 
       // The background loop started with the default sound (Rain) at
-      // the default background volume (0.5).
+      // the default background volume (0.25 since v4 — lowered from 0.5
+      // because the user reported the v3 rain as too loud/irritating).
       expect(audio.calls, contains('startBackground'));
       expect(audio.lastSound, BackgroundSound.rain);
-      expect(audio.lastVolume, 0.5);
+      expect(audio.lastVolume, 0.25);
 
       // Ending the session stops the loop.
       await tester.tap(find.text('End'));
