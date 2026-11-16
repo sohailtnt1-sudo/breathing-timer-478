@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -58,23 +60,44 @@ class _SessionScreenState extends State<SessionScreen> {
       }),
       onComplete: _onComplete,
     );
-    _start();
+    // Start the clock FIRST. The session must advance within a second of
+    // this screen appearing, even if TTS / audio / wakelock setup hangs
+    // or fails on this device (v1 froze at "0s" because the runner only
+    // started after that setup finished). All cue + audio setup runs
+    // afterwards, best-effort, and can never block the timer.
+    _runner.start();
+    unawaited(_startCues());
   }
 
-  Future<void> _start() async {
+  /// Best-effort cue/audio setup. Every step is guarded by a timeout and
+  /// a try/catch: a slow or missing TTS engine, audio session or
+  /// vibrator must never stall or kill the session — the timer is
+  /// already running and the text cue on screen always remains.
+  Future<void> _startCues() async {
+    if (!mounted) return;
     final settings = context.read<SettingsService>();
     final sleepMode = settings.sleepMode;
-    if (!sleepMode) {
-      // Normal session: keep the screen on. Sleep mode: deliberately
-      // no wakelock, so the screen can turn off.
-      await WakelockPlus.enable();
+    try {
+      if (!sleepMode) {
+        // Normal session: keep the screen on. Sleep mode: deliberately
+        // no wakelock, so the screen can turn off.
+        await WakelockPlus.enable().timeout(const Duration(seconds: 3));
+      }
+      await _cues.init().timeout(const Duration(seconds: 4));
+      await _audio
+          .startBackground(
+              settings.backgroundSound, settings.backgroundVolume)
+          .timeout(const Duration(seconds: 5));
+      await _audio
+          .playChime(settings.startEndVolume)
+          .timeout(const Duration(seconds: 5));
+      if (settings.vibrationEnabled) {
+        await _cues.vibrate(long: true).timeout(const Duration(seconds: 2));
+      }
+    } catch (e) {
+      // Best-effort only: a cue failing must not affect the session.
+      debugPrint('Session cue setup failed (continuing without it): $e');
     }
-    await _cues.init();
-    await _audio.startBackground(
-        settings.backgroundSound, settings.backgroundVolume);
-    await _audio.playChime(settings.startEndVolume);
-    if (settings.vibrationEnabled) await _cues.vibrate(long: true);
-    _runner.start();
   }
 
   Future<void> _onPhase(BreathPhase phase, int cycle) async {
@@ -83,12 +106,18 @@ class _SessionScreenState extends State<SessionScreen> {
       _phase = phase;
       _remaining = phase.seconds;
     });
-    await _cues.phaseCue(
-      phase.label,
-      voiceEnabled: settings.voiceCuesEnabled,
-      voiceVolume: settings.voiceVolume,
-      vibrationEnabled: settings.vibrationEnabled,
-    );
+    // Fire-and-forget: the runner never waits on this, and a slow or
+    // stuck voice cue must never pile up behind the countdown.
+    try {
+      await _cues.phaseCue(
+        phase.label,
+        voiceEnabled: settings.voiceCuesEnabled,
+        voiceVolume: settings.voiceVolume,
+        vibrationEnabled: settings.vibrationEnabled,
+      );
+    } catch (e) {
+      debugPrint('Phase cue failed: $e');
+    }
   }
 
   Future<void> _onComplete() async {

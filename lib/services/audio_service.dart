@@ -37,24 +37,36 @@ class AudioService {
 
   Future<void> _ensureContext() async {
     if (_contextApplied) return;
-    await _backgroundPlayer.setAudioContext(audioContext);
-    await _chimePlayer.setAudioContext(audioContext);
+    // Timeouts: a hung audio-session setup on some devices must never
+    // block the session timer waiting on it.
+    await _backgroundPlayer
+        .setAudioContext(audioContext)
+        .timeout(const Duration(seconds: 3));
+    await _chimePlayer
+        .setAudioContext(audioContext)
+        .timeout(const Duration(seconds: 3));
     _contextApplied = true;
   }
 
   /// Start the chosen background sound on loop, at [volume] (0.0–1.0).
   /// [BackgroundSound.none] (or a null asset) stops any loop.
   Future<void> startBackground(BackgroundSound sound, double volume) async {
-    await _ensureContext();
-    final path = sound.assetPath;
-    if (path == null) {
-      await stopBackground();
-      return;
-    }
     try {
-      await _backgroundPlayer.setReleaseMode(ReleaseMode.loop);
-      await _backgroundPlayer.setVolume(volume.clamp(0.0, 1.0));
-      await _backgroundPlayer.play(AssetSource(path));
+      await _ensureContext();
+      final path = sound.assetPath;
+      if (path == null) {
+        await stopBackground();
+        return;
+      }
+      await _backgroundPlayer
+          .setReleaseMode(ReleaseMode.loop)
+          .timeout(const Duration(seconds: 3));
+      await _backgroundPlayer
+          .setVolume(volume.clamp(0.0, 1.0))
+          .timeout(const Duration(seconds: 3));
+      await _backgroundPlayer
+          .play(AssetSource(path))
+          .timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('Background sound failed: $e');
     }
@@ -78,10 +90,14 @@ class AudioService {
 
   /// Soft chime for session start / end, at [volume] (0.0–1.0).
   Future<void> playChime(double volume) async {
-    await _ensureContext();
     try {
-      await _chimePlayer.setVolume(volume.clamp(0.0, 1.0));
-      await _chimePlayer.play(AssetSource('assets/sounds/chime.wav'));
+      await _ensureContext();
+      await _chimePlayer
+          .setVolume(volume.clamp(0.0, 1.0))
+          .timeout(const Duration(seconds: 3));
+      await _chimePlayer
+          .play(AssetSource('assets/sounds/chime.wav'))
+          .timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('Chime failed: $e');
     }

@@ -17,9 +17,12 @@ class CueService {
 
   Future<void> init() async {
     try {
-      await _tts.setLanguage('en-US');
-      await _tts.setSpeechRate(0.55);
-      await _tts.setPitch(1.0);
+      // Each platform call gets a timeout: on some devices the TTS
+      // engine is missing or slow to bind, and a hung call must never
+      // block the session timer waiting on it.
+      await _tts.setLanguage('en-US').timeout(const Duration(seconds: 3));
+      await _tts.setSpeechRate(0.55).timeout(const Duration(seconds: 3));
+      await _tts.setPitch(1.0).timeout(const Duration(seconds: 3));
       _ttsReady = true;
     } catch (e) {
       debugPrint('TTS init failed (voice cues unavailable): $e');
@@ -32,8 +35,10 @@ class CueService {
   Future<void> speak(String text, {required double volume}) async {
     if (!_ttsReady) return;
     try {
-      await _tts.setVolume(volume.clamp(0.0, 1.0));
-      await _tts.speak(text);
+      await _tts
+          .setVolume(volume.clamp(0.0, 1.0))
+          .timeout(const Duration(seconds: 2));
+      await _tts.speak(text).timeout(const Duration(seconds: 5));
     } catch (e) {
       debugPrint('TTS speak failed: $e');
     }
@@ -48,8 +53,13 @@ class CueService {
   /// Short vibration on a phase change; [long] for start/end.
   Future<void> vibrate({bool long = false}) async {
     try {
-      if (await Vibration.hasVibrator() != true) return;
-      await Vibration.vibrate(duration: long ? 400 : 120);
+      if (await Vibration.hasVibrator()
+              .timeout(const Duration(seconds: 2)) !=
+          true) {
+        return;
+      }
+      await Vibration.vibrate(duration: long ? 400 : 120)
+          .timeout(const Duration(seconds: 2));
     } catch (e) {
       debugPrint('Vibration failed: $e');
     }
