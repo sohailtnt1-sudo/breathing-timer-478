@@ -1,8 +1,25 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing: key.properties (android/key.properties, gitignored) holds
+// only keyAlias + storeFile. Passwords are NEVER in git or in key.properties —
+// they come from env vars KEYSTORE_PASSWORD / KEY_PASSWORD (GitHub Actions
+// secrets) or, for a local release build, from keystore/password.txt
+// (chmod 600, gitignored).
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+val releaseStorePassword: String? = System.getenv("KEYSTORE_PASSWORD")
+    ?: rootProject.file("../keystore/password.txt").takeIf { it.exists() }?.readText()?.trim()
+val releaseKeyPassword: String? = System.getenv("KEY_PASSWORD") ?: releaseStorePassword
 
 android {
     namespace = "com.breathe478.timer"
@@ -33,11 +50,18 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = releaseKeyPassword
+            storeFile = (keystoreProperties["storeFile"] as String?)?.let { file(it) }
+            storePassword = releaseStorePassword
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
